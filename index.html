@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>OliviaAI (Client-Only)</title>
+<style>
+  body{font-family:system-ui,Segoe UI,Arial;margin:24px;line-height:1.35}
+  .card{border:1px solid #ddd;border-radius:12px;padding:16px;margin:12px 0}
+  button{padding:8px 12px;border-radius:8px;border:1px solid #888;background:#fafafa;cursor:pointer}
+  pre{white-space:pre-wrap;word-break:break-word;background:#f7f7f7;padding:12px;border-radius:8px}
+</style>
+</head>
+<body>
+<h1>OliviaAI (Client-Only, Free)</h1>
+<p>Signs you in with Google (once), then reads/writes Firestore as <em>you</em>.</p>
+
+<div class="card">
+  <h2>Auth</h2>
+  <button id="btnSignIn">Sign in with Google</button>
+  <div>UID: <code id="uid">–</code></div>
+</div>
+
+<div class="card">
+  <h2>Worldline</h2>
+  <button id="btnReadWL">Read Worldline</button>
+  <button id="btnWriteWL">Write Worldline (ping)</button>
+  <pre id="outWL">–</pre>
+</div>
+
+<div class="card">
+  <h2>Guardian Incidents</h2>
+  <button id="btnListInc">List Recent (20)</button>
+  <button id="btnAddInc">Add Test Incident</button>
+  <pre id="outInc">–</pre>
+</div>
+
+<div class="card">
+  <h2>Dream Reflections</h2>
+  <button id="btnListRep">List Recent (20)</button>
+  <pre id="outRep">–</pre>
+</div>
+
+<script type="module">
+  // ===== Firebase Web SDK from CDN =====
+  import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getAuth, GoogleAuthProvider, signInWithPopup } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+  import {
+    getFirestore, doc, getDoc, setDoc,
+    collection, addDoc, query, orderBy, limit, getDocs, serverTimestamp
+  } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+  // Your project config (safe to expose in client)
+  const firebaseConfig = {
+    apiKey: "AIzaSyBJ3G8SoMVulFpofFuqpz_iRpQe3fc1PUs",
+    authDomain: "oliviaai-251nb.firebaseapp.com",
+    projectId: "oliviaai-251nb",
+  };
+
+  const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+
+  // === Helpers ===
+  async function ensureSignedIn() {
+    if (auth.currentUser) return auth.currentUser.uid;
+    const prov = new GoogleAuthProvider();
+    const cred = await signInWithPopup(auth, prov);
+    return cred.user.uid;
+  }
+  function setText(id,v){document.getElementById(id).textContent=typeof v==="string"?v:JSON.stringify(v,null,2)}
+
+  // === Worldline ===
+  const WL_DOC = "omnimesh/worldline";
+  async function readWorldline(){await ensureSignedIn();const s=await getDoc(doc(db,WL_DOC));return s.exists()?s.data():null}
+  async function writeWorldline(patch){const uid=await ensureSignedIn();await setDoc(doc(db,WL_DOC),{...patch,last:Date.now(),by:uid},{merge:true});return await readWorldline()}
+
+  // === Guardian Incidents ===
+  const GUARDIAN_COL = "guardian_incidents";
+  async function getRecentIncidents(n=20){await ensureSignedIn();const q=query(collection(db,GUARDIAN_COL),orderBy("timestamp","desc"),limit(n));const snap=await getDocs(q);return snap.docs.map(d=>({id:d.id,...d.data()}))}
+  async function logIncident(data){const uid=await ensureSignedIn();await addDoc(collection(db,GUARDIAN_COL),{...data,uid,timestamp:serverTimestamp()});return await getRecentIncidents(10)}
+
+  // === Reports ===
+  async function getSelfCheckReports(n=20){await ensureSignedIn();const q=query(collection(db,"olivia/soulcore/dream_reflections"),orderBy("timestamp","desc"),limit(n));const snap=await getDocs(q);return snap.docs.map(d=>({id:d.id,...d.data()}))}
+
+  // === Wire up UI ===
+  document.getElementById("btnSignIn").onclick=async()=>{const uid=await ensureSignedIn();setText("uid",uid)}
+  document.getElementById("btnReadWL").onclick=async()=>{try{setText("outWL",await readWorldline()??"(no data)")}catch(e){setText("outWL","Error: "+e.message)}}
+  document.getElementById("btnWriteWL").onclick=async()=>{try{setText("outWL",await writeWorldline({ping:(new Date()).toISOString()}))}catch(e){setText("outWL","Error: "+e.message)}}
+  document.getElementById("btnListInc").onclick=async()=>{try{setText("outInc",await getRecentIncidents(20))}catch(e){setText("outInc","Error: "+e.message)}}
+  document.getElementById("btnAddInc").onclick=async()=>{try{setText("outInc",await logIncident({type:"test",note:"Hello from OliviaAI"}))}catch(e){setText("outInc","Error: "+e.message)}}
+  document.getElementById("btnListRep").onclick=async()=>{try{setText("outRep",await getSelfCheckReports(20))}catch(e){setText("outRep","Error: "+e.message)}}
+</script>
+</body>
+</html>
